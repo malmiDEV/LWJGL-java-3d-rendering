@@ -10,6 +10,7 @@ import org.lwjgl.opengl.*;
 
 import java.sql.Array;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Vector;
 
@@ -31,15 +32,20 @@ public class Window {
     private Camera camera;
     private MouseInput msInput;
     private Vector3f cameraInc;
-    private static final float CAMERA_SPEED = 5.0f;
+    private static final float CAMERA_SPEED = 4.0f;
     private static final float MOUSE_SENSITIVITY = 0.08f;
     private float lastTime = 0f;
     private float deltaTime = 0f;
     private boolean isWire = false;
-    private List<Entity> entities = new ArrayList<Entity>();
+    static private final List<Entity> entities = Collections.synchronizedList(new ArrayList<Entity>());
+    static private final List<Vector3f> usedChunk = new ArrayList<Vector3f>();
+    static private Vector3f cameraPos = new Vector3f(0, 0, 0);
+    private RawModel model;
+
+    private static final int chunkVolume = 60;
 
     public Window() {
-        this.winSize = new Vector2i(1200, 800);
+        this.winSize = new Vector2i(1920, 1080);
         this.name = "Game";
     }
 
@@ -69,11 +75,11 @@ public class Window {
         }
 
         glfwDefaultWindowHints();
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         glfwWindowHint(GLFW_MAXIMIZED, GLFW_FALSE);
 
-        handle = glfwCreateWindow(this.winSize.x, this.winSize.y, this.name, NULL, NULL);
+        handle = glfwCreateWindow(this.winSize.x, this.winSize.y, this.name, glfwGetPrimaryMonitor(), NULL);
         if (handle == NULL) {
             throw new IllegalStateException("uninitialize engine window");
         }
@@ -125,14 +131,14 @@ public class Window {
         loader = new Loader();
         renderer = new Renderer();
 
+        model = loader.loadToVAO(vertices, indices, tex_coords, shaderIng);
+        model.setTexture(new Texture(loader.loadTextures("Data/Texture/grass.png")));
+
         shader = new ShaderCreate("Data/Shaders/vertex.glsl", "Data/Shaders/fragment.glsl");
         shader.createUniforms("textureSampler");
         shader.createUniforms("m");
         shader.createUniforms("v");
         shader.createUniforms("p");
-
-        RawModel model = loader.loadToVAO(vertices, indices, tex_coords, shaderIng);
-        model.setTexture(new Texture(loader.loadTextures("Data/Texture/grass.png")));
 
         GLFW.glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
         msInput = new MouseInput();
@@ -142,11 +148,7 @@ public class Window {
         camera.setPosition(0, 0, 3);
         camera.setRotation(0, -90, 0);
 
-        for (int x = -10; x < 10; x++) {
-            for (int z = -10; z < 10; z++) {
-                entities.add(new Entity(model, new Vector3f(x, 0, z), new Vector3f(0, 0, 0), 1f));
-            }
-        }
+        entity = new Entity();
     }
 
     public void calcDelta() {
@@ -198,6 +200,31 @@ public class Window {
     }
 
     public void loop() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!glfwWindowShouldClose(handle)) {
+                    for (int x = (int) (cameraPos.x - chunkVolume); x < cameraPos.x; x++) {
+                        for (int z = (int) (cameraPos.z); z < cameraPos.z + chunkVolume; z++) {
+                            if (!usedChunk.contains(new Vector3f(x, 0, z))) {
+                                entities.add(new Entity(model, new Vector3f(x, 0, z), new Vector3f(0, 0, 0), 1f));
+                                usedChunk.add(new Vector3f(x, 0, z));
+                            }
+                        }
+                    }
+                    for (int x = (int) (cameraPos.x - chunkVolume); x < cameraPos.x + chunkVolume; x++) {
+                        for (int z = (int) (cameraPos.z - chunkVolume); z < cameraPos.z + chunkVolume; z++) {
+                            if (!usedChunk.contains(new Vector3f(x, 0, z))) {
+                                entities.add(new Entity(model, new Vector3f(x, 0, z), new Vector3f(0, 0, 0), 1f));
+                                usedChunk.add(new Vector3f(x, 0, z));
+                            }
+                        }
+                    }
+                }
+            }
+        }).start();
+
+
         while (!glfwWindowShouldClose(handle)) {
             glfwPollEvents();
 
@@ -210,21 +237,36 @@ public class Window {
             this.input();
             this.update();
 
+            cameraPos = camera.getPosition();
+
+            ///////////////////// 
+            for (int i = 0; i < entities.size(); i++) {
+                int destX = (int) (cameraPos.x - entities.get(i).getPosition().x);
+                int destZ = (int) (cameraPos.z - entities.get(i).getPosition().z);
+
+                if (destX < 0) {
+                    destX = -destX;
+                } if (destZ < 0) {
+                    destZ = -destZ;
+                }
+
+                if ((destX > chunkVolume) || (destZ > chunkVolume)) {
+                    usedChunk.remove(entities.get(i).getPosition());
+                    entities.remove(i);
+                }
+            }
+            /////////////////
+
             shader.setUniforms("p", camera.getProjectionMatrix());
             shader.setUniforms("v", camera.getViewMatrix());
 
-            for (Entity e : entities) {
-                shader.setUniforms("m", camera.getTransMatrix(e));
-                renderer.render(e, isWire);
+            for (int e = 0; e < entities.size(); e++) {
+                shader.setUniforms("m", camera.getTransMatrix(entities.get(e)));
+                renderer.render(entities.get(e), isWire);
             }
             shader.shaderDisable();
 
             glfwSwapBuffers(handle);
         }
-    }
-
-
-    public long geth() {
-        return handle;
     }
 }

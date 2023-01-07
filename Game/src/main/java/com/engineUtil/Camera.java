@@ -51,7 +51,6 @@ public class Camera extends Entity {
         this.rotation.x += x;
         this.rotation.y += y;
         this.rotation.z += z;
-        System.out.println("x: " + x + " y: " + y);
     }
 
     public Vector3f getPosition() {
@@ -87,7 +86,7 @@ public class Camera extends Entity {
 
     public Matrix4f getProjectionMatrix() {
         Matrix4f mat = new Matrix4f();
-        mat.identity().perspective((float) Math.toRadians(fov), (float) (1200.0f / 800.0f), 0.1f, 100.0f);
+        mat.identity().perspective((float) Math.toRadians(fov), (float) (1920.0f / 1080.0f), 0.1f, 100.0f);
         return mat;
     }
 }
